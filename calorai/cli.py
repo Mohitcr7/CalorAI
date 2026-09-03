@@ -91,6 +91,10 @@ def main() -> None:
 
     user_id = args.user
     console.print(BANNER)
+    # Always show which provider is actually serving, so a silent failover or a
+    # single-key run is never mistaken for the intended configuration.
+    from .llm import active_providers
+    console.print(f"[dim]models: {active_providers()}[/]\n")
 
     while True:
         try:

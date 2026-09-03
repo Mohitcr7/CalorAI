@@ -27,7 +27,7 @@ from langgraph.prebuilt import ToolNode
 
 from . import db, memory, tools, vision
 from .config import PORTION_AMBIGUITY_THRESHOLD
-from .llm import text_llm
+from .llm import text_llm_with_tools
 from .prompts import build_system_prompt
 
 
@@ -92,7 +92,7 @@ def _assistant(state: AgentState) -> dict:
             f"meal's calories by more than {int(PORTION_AMBIGUITY_THRESHOLD * 100)}%.)"
         )
 
-    llm = text_llm().bind_tools(tools.ALL_TOOLS)
+    llm = text_llm_with_tools(tools.ALL_TOOLS)
     resp = llm.invoke([SystemMessage(content=system), *state["messages"]])
     return {"messages": [resp]}
 

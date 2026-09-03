@@ -120,10 +120,15 @@ def analyse_image(image_path: str | Path, caption: str = "") -> VisionResult:
             "adjustments from the caption -- report what is physically on the plate."
         )
 
+    # langchain-core's standard image block. Both langchain-anthropic and
+    # langchain-google-genai convert this natively. The older
+    # {"type": "image_url", "image_url": "data:..."} string form -- which is what
+    # a Gemini-only implementation naturally reaches for -- is silently rejected
+    # by the Anthropic adapter, so it cannot be used once there are two providers.
     msg = HumanMessage(
         content=[
             {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": f"data:{mime};base64,{b64}"},
+            {"type": "image", "source_type": "base64", "data": b64, "mime_type": mime},
         ]
     )
     try:
