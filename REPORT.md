@@ -34,7 +34,7 @@ engineering behind it.
 |---|---|---|
 | 6 core features | all implemented | eval suite + manual verification below |
 | Eval suite | 15 cases, DB-level assertions | 1 failure in 7 full runs |
-| Failover tests | 6/6, no API keys required | `tests/test_failover.py` |
+| Failover tests | 6/6 stub tests, **+ 2/2 live on Gemini** | `tests/test_failover.py` + a real `CALORAI_PROVIDER=google` run |
 | Clean clone | verified end to end | fresh clone + venv + `requirements.txt` |
 | Text latency | **p50 1.97s / p95 2.80s** | n=20, mixed message shapes |
 | Image latency | **p50 6.12s / p95 10.07s** | n=8, Sonnet 5 vision |
@@ -540,12 +540,30 @@ vision: 15s primary + 20s failover = 35s worst case
 
 The 10s figure is measured, not guessed — see [Latency](#latency).
 
-### Known gap
+### Verified live
 
-**The failover has never made a live Gemini call.** The routing policy is proven;
-that Gemini produces *good tool calls* when Claude is down is untested, because no
-Gemini key was available. One `CALORAI_PROVIDER=google` run across the eval suite
-would close this.
+`CALORAI_PROVIDER=google` forces every role onto Gemini with Claude excluded
+entirely, confirmed via `llm.have_anthropic()` returning `False` before any
+model call — so the following did not fall back to Claude by accident.
+`basic_log` and `correction_no_double_count` ran end to end on Gemini alone and
+both passed: correct tool calls, and 525 → 735 kcal on the correction, not 1155
+— the no-double-count invariant held on a provider that had never actually been
+exercised.
+
+Getting a passing run took two fixes, both found by the live key rather than
+reasoned about in the abstract — see [Bugs found, and how](#bugs-found-and-how).
+The result also carries one honest caveat: these Gemini calls ran **11–15s** end
+to end against Claude's sub-3s on the same cases. Failover buys availability, not
+comparable speed. The timeout budgets above bound a single HTTP request, and a
+full turn is at least two model calls, so total turn time on the failover path
+runs well above what those single-call figures alone would suggest.
+
+### What is still not proven
+
+The live test confirms Gemini produces *correct* tool calls against this
+system's actual prompt and tool schema. It does not simulate a real Claude
+outage triggering the fallback mid-session in production — that path is still
+proven by the stub tests only, not by a live failure injection.
 
 ---
 
@@ -697,8 +715,8 @@ available. Reported as present-and-correctly-named rather than working.
 
 ## Bugs found, and how
 
-The most useful artefact in this repo may be the commit history, because four
-significant bugs were invisible until the code met a real model. All four are in
+The most useful artefact in this repo may be the commit history, because six
+significant bugs were invisible until the code met a real model. All six are in
 the log with their diagnosis.
 
 | Bug | Symptom | Found by |
@@ -707,15 +725,27 @@ the log with their diagnosis.
 | Streaming emitted nothing | Anthropic returns content *blocks*, code assumed a string | latency bench showing empty replies |
 | Vision default 400'd on every call | Sonnet 5 rejects `temperature`; evals ran on Haiku, which accepts it | insisting on testing the shipped default |
 | Placeholder caption poisoned vision | `[sent a photo of their food]` passed to the vision model as a caption | a real photo |
+| Shipped Gemini fallback models 404'd | `gemini-2.5-flash(-lite)` still listed by `models.list()`, but generation blocked for new-user cohorts | a live failover run on a freshly issued key |
+| `thinking_budget=0` rejected outright | bare 400, no detail, only on that exact value — 1, -1, 128 all fine | bisecting kwargs on a bare call after the error string said nothing useful |
 
-Two meta-lessons, both encoded in the code and the docs:
+Three meta-lessons, all encoded in the code and the docs:
 
 **The tested configuration and the shipped configuration must be the same one.**
 The vision bug existed precisely because evals pinned Haiku for cost while
-Sonnet shipped. Nothing else would have caught it.
+Sonnet shipped. Nothing else would have caught it. The Gemini model-deprecation
+bug is the same lesson at the account level: an old developer key kept working
+and grandfathered access to a model a brand-new key silently can't reach, so
+"it works on my key" was never sufficient evidence.
 
 **A passing eval is not evidence until you have checked what it asserts.** The
 image eval was green while the model logged idli and dosa for a plate of roti.
+
+**The "disable reasoning" knob is not portable.** `thinking_budget=0` was a
+correct, working value for the Gemini 2.5 line and a rejected one for 3.5, with
+an error message that gave no hint why. A latency optimisation built around one
+model generation's specific parameter contract is a live liability the moment
+that contract changes underneath it — and the only way this was caught was
+running the actual call, not reading documentation about it.
 
 ---
 

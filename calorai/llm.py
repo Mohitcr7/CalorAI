@@ -260,7 +260,7 @@ def extractor_llm() -> BaseChatModel:
     ) if have_anthropic() else None
     fallback = _gemini(
         FALLBACK_EXTRACTOR_MODEL, temperature=0.0, timeout=EXTRACTOR_TIMEOUT,
-        max_tokens=512, thinking_budget=0,
+        max_tokens=512, thinking_budget=1,  # see config.py -- 0 is rejected on gemini-3.5
     ) if have_google() else None
     return _compose(primary, fallback, "extractor")
 

@@ -8,9 +8,19 @@ than taking the product down.
 
   role       primary (Anthropic)      failover (Google)
   ---------  -----------------------  -----------------------
-  text       claude-haiku-4-5         gemini-2.5-flash-lite
-  vision     claude-sonnet-5          gemini-2.5-flash
-  extractor  claude-haiku-4-5         gemini-2.5-flash-lite
+  text       claude-haiku-4-5         gemini-3.5-flash-lite
+  vision     claude-sonnet-5          gemini-3.5-flash
+  extractor  claude-haiku-4-5         gemini-3.5-flash-lite
+
+  Was gemini-2.5-flash(-lite) until a live failover test (see README) hit a 404:
+  "gemini-2.5-flash-lite is no longer available to new users." The model is
+  still listed by client.models.list() -- it is not globally retired -- but
+  generation is blocked per-key for accounts created after some cutoff, which
+  makes it a trap no amount of local testing catches: an old key on a
+  developer's machine keeps working while a fresh key silently can't call the
+  model that key's own account is told to use as the default. Confirmed the
+  replacement against the live model list rather than guessing from the error
+  string alone.
 
 The eval and latency runs in the README were taken with vision pinned to Haiku
 (CALORAI_VISION_MODEL in .env) to keep test cost down. The shipped default is
@@ -94,9 +104,9 @@ TEXT_MODEL = os.getenv("CALORAI_TEXT_MODEL", "claude-haiku-4-5-20251001")
 VISION_MODEL = os.getenv("CALORAI_VISION_MODEL", "claude-sonnet-5")
 EXTRACTOR_MODEL = os.getenv("CALORAI_EXTRACTOR_MODEL", "claude-haiku-4-5-20251001")
 
-FALLBACK_TEXT_MODEL = os.getenv("CALORAI_FALLBACK_TEXT_MODEL", "gemini-2.5-flash-lite")
-FALLBACK_VISION_MODEL = os.getenv("CALORAI_FALLBACK_VISION_MODEL", "gemini-2.5-flash")
-FALLBACK_EXTRACTOR_MODEL = os.getenv("CALORAI_FALLBACK_EXTRACTOR_MODEL", "gemini-2.5-flash-lite")
+FALLBACK_TEXT_MODEL = os.getenv("CALORAI_FALLBACK_TEXT_MODEL", "gemini-3.5-flash-lite")
+FALLBACK_VISION_MODEL = os.getenv("CALORAI_FALLBACK_VISION_MODEL", "gemini-3.5-flash")
+FALLBACK_EXTRACTOR_MODEL = os.getenv("CALORAI_FALLBACK_EXTRACTOR_MODEL", "gemini-3.5-flash-lite")
 
 # --------------------------------------------------------------------------
 # timeouts (seconds)
@@ -126,8 +136,15 @@ EXTRACTOR_TIMEOUT = float(os.getenv("CALORAI_EXTRACTOR_TIMEOUT", "15"))
 # Gemini 2.5 runs an internal reasoning pass by default. Zero disables it; on
 # the text path that pass costs more wall clock than the rest of the turn and
 # buys nothing for "had 2 rotis". Only applies to the Gemini side.
-TEXT_THINKING_BUDGET = int(os.getenv("CALORAI_TEXT_THINKING", "0"))
-VISION_THINKING_BUDGET = int(os.getenv("CALORAI_VISION_THINKING", "0"))
+# 0 reads as "off" but a live failover test found gemini-3.5-flash-lite rejects
+# it outright: 400 INVALID_ARGUMENT, no further detail, for thinking_budget=0
+# specifically -- 1, -1 (dynamic) and every other value tried were accepted.
+# Isolated by bisecting kwargs on a bare call, not guessed. 1 is the smallest
+# valid budget and keeps the original intent (skip the reasoning pass) as
+# closely as the 3.x API now allows; gemini-2.5-flash(-lite) accepts 1 too, so
+# this does not regress accounts still on the 2.5 line.
+TEXT_THINKING_BUDGET = int(os.getenv("CALORAI_TEXT_THINKING", "1"))
+VISION_THINKING_BUDGET = int(os.getenv("CALORAI_VISION_THINKING", "1"))
 
 # --------------------------------------------------------------------------
 # behaviour thresholds

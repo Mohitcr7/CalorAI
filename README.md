@@ -186,9 +186,11 @@ Two providers, three roles. Claude primary, Gemini failover.
 
 | Role | Primary | Failover | Why this tier |
 |---|---|---|---|
-| text | `claude-haiku-4-5` | `gemini-2.5-flash-lite` | On the critical path for every message. Fastest Claude model with reliable tool calling |
-| vision | `claude-sonnet-5` | `gemini-2.5-flash` | Harder perceptual task, runs at most once per turn |
-| extractor | `claude-haiku-4-5` | `gemini-2.5-flash-lite` | Off the reply path — latency invisible, so take the cheap model |
+| text | `claude-haiku-4-5` | `gemini-3.5-flash-lite` | On the critical path for every message. Fastest Claude model with reliable tool calling |
+| vision | `claude-sonnet-5` | `gemini-3.5-flash` | Harder perceptual task, runs at most once per turn |
+| extractor | `claude-haiku-4-5` | `gemini-3.5-flash-lite` | Off the reply path — latency invisible, so take the cheap model |
+
+*(Was `gemini-2.5-flash(-lite)` — see [Failover](#failover) for why that changed.)*
 
 **Why Claude:** tool-calling reliability is the thing this agent lives or dies
 on, and Haiku 4.5 is the fastest model where I trust it. Routing "had 2 rotis"
@@ -576,6 +578,54 @@ mid-stream error propagates. That's the behaviour you want — a user must never
 see half a Claude reply followed by a fresh, different Gemini reply. I read the
 source to confirm rather than assuming, and the test pins it.
 
+### Verified live, not just with stubs
+
+`CALORAI_PROVIDER=google` forces every role onto Gemini with Claude excluded
+entirely — confirmed first via `llm.have_anthropic()` reporting `False`, so this
+is provably not falling back to Claude by accident. `basic_log` and
+`correction_no_double_count` then ran end to end on Gemini alone:
+
+```
+had 2 parathas and chai for breakfast   → Logged: 2 parathas and chai = 525 kcal.
+actually that was 3 parathas not 2      → Got it, bumped to 3 parathas — 735 kcal now.
+```
+
+Correct tool calls, correct totals — 735, not 1155, so the no-double-count
+invariant holds on the provider that had never actually been exercised. Getting
+here needed two fixes, both found by the live key rather than by reasoning about
+the SDK in the abstract:
+
+**1. The shipped fallback models were dead on any new key.** `gemini-2.5-flash`
+and `gemini-2.5-flash-lite` are still listed by `client.models.list()` — not
+globally retired — but generation on them 404s for accounts created after some
+cutoff: *"gemini-2.5-flash-lite is no longer available to new users."* An old
+developer key keeps working while a fresh one silently can't call the model
+that key's own account is pointed at by default. Fixed by pulling the live
+model list rather than trusting the error string alone, and moving to
+`gemini-3.5-flash(-lite)`.
+
+**2. `thinking_budget=0` — the exact setting used to disable Gemini's reasoning
+pass and the main lever in the [latency](#latency) section — is rejected
+outright on `gemini-3.5-flash-lite`: a bare 400 with no further detail. Every
+other value tried (1, -1/dynamic, 128) was accepted. Isolated by bisecting
+kwargs on a bare call rather than guessing from the error, which said nothing
+useful. Fixed by moving the default from 0 to 1, the smallest valid budget —
+functionally the same "skip the reasoning pass" intent, and confirmed not to
+regress accounts still on the 2.5 line.
+
+**What this did and didn't prove.** It confirms Gemini produces correct tool
+calls under this system's actual prompt and tool schema — the thing that was
+genuinely unverified before. It does not simulate a live Claude outage
+triggering the fallback path in production; that part is still proven by the
+stub tests only. And it surfaced a real cost of failover worth stating plainly:
+these Gemini calls ran **11–15s** end to end, against Claude's sub-3s on the same
+cases. The timeout budgets above bound a single HTTP request; a full turn is at
+least two model calls (decide to call a tool, then respond to its result), so
+total turn time on the failover path is well above what a single-call timeout
+figure implies. Failover buys availability, not comparable speed — worth
+knowing before assuming a Claude outage degrades gracefully rather than just
+getting much slower.
+
 ---
 
 ## Assumptions and trade-offs
@@ -585,9 +635,15 @@ source to confirm rather than assuming, and the test pins it.
 no network call on the hot path. A user weighing food on a scale would find it
 frustrating.
 
-**Failover has never made a live Gemini call.** The routing policy is proven with
-stubs; that Gemini produces *good tool calls* when Claude is down is untested. I
-didn't have a Gemini key. One `CALORAI_PROVIDER=google` run would close this.
+**Failover is now verified with a live Gemini call, and it needed two fixes to get
+there.** `CALORAI_PROVIDER=google`, `basic_log` and `correction_no_double_count`
+run entirely on Gemini: correct tool calls, correct totals (525 → 735, not 1155
+— no double-count on the provider that was never explicitly tested). See
+[Failover](#failover) for the two bugs a live key surfaced and what they cost.
+
+One caveat the test itself surfaced: these Gemini calls ran **11–15s**, against
+Claude's sub-3s. Failover buys availability, not speed — when it actually fires,
+expect a much slower turn, not a comparable one.
 
 **`VISION_MIN_CONFIDENCE` is weaker than it looks.** It's a single threshold
 (0.45) across models that calibrate differently — Sonnet says 0.50 while correct,
