@@ -12,6 +12,10 @@ than taking the product down.
   vision     claude-sonnet-5          gemini-2.5-flash
   extractor  claude-haiku-4-5         gemini-2.5-flash-lite
 
+The eval and latency runs in the README were taken with vision pinned to Haiku
+(CALORAI_VISION_MODEL in .env) to keep test cost down. The shipped default is
+Sonnet 5, which is the configuration the design argument above is about.
+
 Why these:
 
 * TEXT runs the conversation and every tool call, on the critical path for every
@@ -102,6 +106,22 @@ TEXT_FALLBACK_TIMEOUT = float(os.getenv("CALORAI_TEXT_FALLBACK_TIMEOUT", "12"))
 VISION_TIMEOUT = float(os.getenv("CALORAI_VISION_TIMEOUT", "15"))
 VISION_FALLBACK_TIMEOUT = float(os.getenv("CALORAI_VISION_FALLBACK_TIMEOUT", "20"))
 EXTRACTOR_TIMEOUT = float(os.getenv("CALORAI_EXTRACTOR_TIMEOUT", "15"))
+
+# PROMPT CACHING
+# Anthropic will only cache a prefix above a per-model minimum. Measured against
+# this account rather than assumed:
+#
+#     claude-haiku-4-5   4059 tok -> not cached,  4509 tok -> cached  (floor 4096)
+#     claude-sonnet-5    4803 tok -> cached
+#
+# The assembled text prefix (tool schemas + static instructions) is ~2600 tokens,
+# which is UNDER Haiku's floor, so caching is inactive on the text path today.
+# The cache_control breakpoint is still in place and correctly positioned, so it
+# starts working the moment the prefix crosses 4096 -- which more tools or a
+# longer instruction block would do. Padding the prompt to reach the floor on
+# purpose was considered and rejected: it would technically be cheaper per turn
+# (cached reads bill at a fraction) but it means shipping filler tokens and
+# paying to process them on every cache miss.
 
 # Gemini 2.5 runs an internal reasoning pass by default. Zero disables it; on
 # the text path that pass costs more wall clock than the rest of the turn and
