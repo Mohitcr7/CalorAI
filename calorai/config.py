@@ -33,8 +33,15 @@ both sides means a 40s turn -- worse than simply failing. The text path
 therefore runs a deliberately tight primary timeout, so the worst case stays
 bounded:
 
-    text:   6s primary  + 12s failover  = 18s worst case
+    text:   10s primary + 12s failover  = 22s worst case
     vision: 15s primary + 20s failover  = 35s worst case
+
+The 10s figure is measured, not guessed. Benchmarked text turns run p50 2.4s /
+p95 3.2s, with the slowest observed healthy call at 8.8s (a genuinely harder
+judgement -- "leftover biryani, maybe two thirds of the box" -- not a stall).
+An earlier 6s default cut that call off mid-flight and turned a correct answer
+into a hard failure, so the timeout sits above the slowest real call rather
+than near the median.
 
 See llm.py for the retry policy, which matters just as much.
 """
@@ -52,8 +59,22 @@ DB_PATH = Path(os.getenv("CALORAI_DB", ROOT / "data" / "calorai.db"))
 # --------------------------------------------------------------------------
 # credentials
 # --------------------------------------------------------------------------
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+def _key(name: str) -> str:
+    """Read a key, treating .env.example placeholders as absent.
+
+    Copying .env.example to .env and filling in only one provider is the normal
+    way to run this. Without this check the untouched placeholder string is
+    truthy, the app reports a failover it does not have, and the first real
+    failover fails on a 401 instead of answering.
+    """
+    val = os.getenv(name, "").strip()
+    if not val or val.startswith("your_") or val.endswith("_here"):
+        return ""
+    return val
+
+
+ANTHROPIC_API_KEY = _key("ANTHROPIC_API_KEY")
+GEMINI_API_KEY = _key("GEMINI_API_KEY")
 
 # Lets you force one provider for testing or a demo, e.g. to show the failover
 # path working without having to break anything.
@@ -76,7 +97,7 @@ FALLBACK_EXTRACTOR_MODEL = os.getenv("CALORAI_FALLBACK_EXTRACTOR_MODEL", "gemini
 # --------------------------------------------------------------------------
 # timeouts (seconds)
 # --------------------------------------------------------------------------
-TEXT_TIMEOUT = float(os.getenv("CALORAI_TEXT_TIMEOUT", "6"))
+TEXT_TIMEOUT = float(os.getenv("CALORAI_TEXT_TIMEOUT", "10"))
 TEXT_FALLBACK_TIMEOUT = float(os.getenv("CALORAI_TEXT_FALLBACK_TIMEOUT", "12"))
 VISION_TIMEOUT = float(os.getenv("CALORAI_VISION_TIMEOUT", "15"))
 VISION_FALLBACK_TIMEOUT = float(os.getenv("CALORAI_VISION_FALLBACK_TIMEOUT", "20"))

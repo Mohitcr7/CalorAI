@@ -27,8 +27,8 @@ from langgraph.prebuilt import ToolNode
 
 from . import db, memory, tools, vision
 from .config import PORTION_AMBIGUITY_THRESHOLD
-from .llm import text_llm_with_tools
-from .prompts import build_system_prompt
+from .llm import have_anthropic, text_llm_with_tools
+from .prompts import build_system_blocks, build_system_prompt
 
 
 class AgentState(TypedDict):
@@ -84,13 +84,24 @@ def _perceive(state: AgentState) -> dict:
 
 def _assistant(state: AgentState) -> dict:
     uid = state["user_id"]
-    system = build_system_prompt(uid)
+
+    extra = ""
     if state.get("vision_note"):
-        system += "\n\n" + state["vision_note"]
-        system += (
+        extra = "\n\n" + state["vision_note"] + (
             f"\n(Ambiguity rule: only ask if a portion guess would change the "
             f"meal's calories by more than {int(PORTION_AMBIGUITY_THRESHOLD * 100)}%.)"
         )
+
+    # Block form on Anthropic so the static prefix and tool schemas are cached;
+    # flat string on the Gemini failover, which has no equivalent knob. The
+    # content is identical either way.
+    if have_anthropic():
+        blocks = build_system_blocks(uid)
+        if extra:
+            blocks[-1]["text"] += extra
+        system: object = blocks
+    else:
+        system = build_system_prompt(uid) + extra
 
     llm = text_llm_with_tools(tools.ALL_TOOLS)
     resp = llm.invoke([SystemMessage(content=system), *state["messages"]])
@@ -129,6 +140,28 @@ def graph():
     return _GRAPH
 
 
+def _text_of(content) -> str:
+    """Pull plain text out of a message's content.
+
+    Anthropic returns a LIST of typed blocks (text blocks interleaved with
+    tool_use blocks); Gemini returns a plain string. Assuming the string form --
+    which is what a Gemini-only implementation naturally does -- silently yields
+    nothing on Anthropic, so streaming looks like it works and prints an empty
+    reply. Handle both shapes.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        out = []
+        for block in content:
+            if isinstance(block, str):
+                out.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                out.append(block.get("text", ""))
+        return "".join(out)
+    return ""
+
+
 def _history(user_id: str, limit: int = 8) -> list[BaseMessage]:
     """Rehydrate the thread from SQLite so a fresh process continues mid-conversation."""
     out: list[BaseMessage] = []
@@ -163,9 +196,11 @@ def chat(user_id: str, text: str, image_path: str | None = None) -> str:
     result = graph().invoke(state)
     reply = ""
     for m in reversed(result["messages"]):
-        if isinstance(m, AIMessage) and isinstance(m.content, str) and m.content.strip():
-            reply = m.content.strip()
-            break
+        if isinstance(m, AIMessage):
+            text = _text_of(m.content).strip()
+            if text:
+                reply = text
+                break
     _finish(user_id, text, reply, image_path)
     return reply
 
@@ -178,7 +213,10 @@ def chat_stream(user_id: str, text: str, image_path: str | None = None):
     for chunk, meta in graph().stream(state, stream_mode="messages"):
         if meta.get("langgraph_node") != "assistant":
             continue
-        if isinstance(chunk, AIMessage) and isinstance(chunk.content, str) and chunk.content:
-            emitted.append(chunk.content)
-            yield chunk.content
+        if not isinstance(chunk, AIMessage):
+            continue
+        text = _text_of(chunk.content)
+        if text:
+            emitted.append(text)
+            yield text
     _finish(user_id, text, "".join(emitted).strip(), image_path)

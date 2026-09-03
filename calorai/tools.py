@@ -47,6 +47,25 @@ def _uid() -> str:
     return CURRENT_USER.get()
 
 
+def _authoritative_total(uid: str) -> str:
+    """Post-mutation totals, worded to win against the copy in the system prompt.
+
+    Both the system prompt and this string carry the day's totals, and they must
+    never disagree. The prompt's copy is built before the tool runs, so after a
+    mutation it is stale by one change. Rather than remove it -- it is what lets
+    "how am I doing?" answer with zero tool calls -- this string states
+    precedence explicitly and sits immediately before generation, where a small
+    model actually reads it. Observed failure without this: the model invents a
+    plausible number instead of quoting either one.
+    """
+    t = db.daily_totals(uid)
+    return (
+        f" DAY TOTAL AFTER THIS CHANGE (use exactly these numbers, they replace "
+        f"any totals given earlier in your instructions): {t['kcal']:.0f} kcal, "
+        f"{t['protein_g']:.0f}g protein, {t['carbs_g']:.0f}g carbs, {t['fat_g']:.0f}g fat."
+    )
+
+
 # --------------------------------------------------------------------------
 # schemas
 # --------------------------------------------------------------------------
@@ -93,11 +112,7 @@ def log_meal(items: list[FoodItem], meal_type: str = "unknown", note: str = "") 
         return "Nothing to log -- no foods were given."
 
     db.insert_meal(uid, resolved, meal_type=meal_type, source="text", note=note)
-    t = db.daily_totals(uid)
-    return (
-        "Logged: " + "; ".join(lines)
-        + f". Day so far: {t['kcal']:.0f} kcal, {t['protein_g']:.0f}g protein."
-    )
+    return "Logged: " + "; ".join(lines) + "." + _authoritative_total(uid)
 
 
 @tool
@@ -111,10 +126,9 @@ def correct_item(food: str, new_quantity: float) -> str:
         return f"Couldn't find anything matching '{food}' logged recently."
     old = item["quantity"]
     db.update_item_quantity(item["id"], float(new_quantity))
-    t = db.daily_totals(uid)
     return (
-        f"Updated {item['name']}: {old:g} -> {new_quantity:g} {item['unit']}. "
-        f"Day now: {t['kcal']:.0f} kcal, {t['protein_g']:.0f}g protein."
+        f"Updated {item['name']}: was {old:g}, now {new_quantity:g} {item['unit']}."
+        + _authoritative_total(uid)
     )
 
 
@@ -128,10 +142,9 @@ def scale_last_meal(factor: float, reason: str = "") -> str:
         return "No meal logged today to adjust."
     last = meals[-1]
     db.scale_meal(last["meal_id"], float(factor))
-    t = db.daily_totals(uid)
     return (
-        f"Scaled that meal to {factor:g}x{(' (' + reason + ')') if reason else ''}. "
-        f"Day now: {t['kcal']:.0f} kcal, {t['protein_g']:.0f}g protein."
+        f"Scaled that meal to {factor:g}x{(' (' + reason + ')') if reason else ''}."
+        + _authoritative_total(uid)
     )
 
 
@@ -143,8 +156,7 @@ def delete_last_meal() -> str:
     if not meals:
         return "Nothing logged today to remove."
     db.soft_delete_meal(meals[-1]["meal_id"])
-    t = db.daily_totals(uid)
-    return f"Removed it. Day now: {t['kcal']:.0f} kcal, {t['protein_g']:.0f}g protein."
+    return "Removed that meal." + _authoritative_total(uid)
 
 
 # --------------------------------------------------------------------------

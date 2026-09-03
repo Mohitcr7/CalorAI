@@ -31,6 +31,14 @@ This is the judgement call that matters most. Bias toward logging.
   already logged -- just log it and tell them.
 - "skipped lunch" means log nothing. Acknowledge it and move on.
 
+NUMBERS
+Never add, subtract or otherwise compute a total yourself. Every number you say
+must be copied from somewhere you were given it.
+- If a tool result this turn says "DAY TOTAL AFTER THIS CHANGE", use those
+  numbers. They are the newest and they replace the totals below.
+- Otherwise use the totals below.
+- A tool telling you what it logged is that ITEM's calories, not the day's.
+
 CORRECTIONS
 When the user fixes something they already told you ("actually that was 3 rotis
 not 2", "half of this was my brother's"), you are EDITING an existing entry.
@@ -50,11 +58,36 @@ remember immediately so it applies from this turn on.
 """
 
 
+def build_system_blocks(user_id: str) -> list[dict]:
+    """System prompt as two blocks: a cacheable static prefix, then per-user state.
+
+    Split for Anthropic prompt caching. The cache prefix covers the tool schemas
+    (~1900 tokens, identical on every request) plus the static instructions, and
+    a cache_control breakpoint is placed at the end of that block. Everything
+    that changes per turn -- date, memory, totals -- goes in the SECOND block,
+    after the breakpoint, so it never invalidates the cache.
+
+    Getting this order wrong is the whole game: put the totals first and the
+    prefix changes every time a user eats, the cache never hits, and the
+    optimisation silently does nothing.
+    """
+    return [
+        {"type": "text", "text": BASE, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": _dynamic_context(user_id)},
+    ]
+
+
 def build_system_prompt(user_id: str) -> str:
-    """Assembled fresh each turn. Local reads only."""
+    """Flat string form. Used by the Gemini failover path, which has no
+    equivalent caching knob, and by tests."""
+    return BASE + "\n" + _dynamic_context(user_id)
+
+
+def _dynamic_context(user_id: str) -> str:
+    """Per-turn state. Local SQLite reads only, no model call."""
     from . import db, memory
 
-    parts = [BASE, f"\nToday's date is {date.today().isoformat()}."]
+    parts = [f"Today's date is {date.today().isoformat()}."]
 
     mem = memory.tier1_context(user_id)
     if mem:
@@ -66,10 +99,11 @@ def build_system_prompt(user_id: str) -> str:
     t = db.daily_totals(user_id)
     if t["meals"]:
         parts.append(
-            f"\nToday's running totals (already current, no tool call needed to "
-            f"read them): {t['kcal']:.0f} kcal, {t['protein_g']:.0f}g protein, "
+            f"\nTODAY'S TOTALS (authoritative, already includes everything logged "
+            f"this turn -- quote these, never recompute them): "
+            f"{t['kcal']:.0f} kcal, {t['protein_g']:.0f}g protein, "
             f"{t['carbs_g']:.0f}g carbs, {t['fat_g']:.0f}g fat, "
-            f"{t['meals']} meal(s) logged."
+            f"across {t['meals']} meal(s)."
         )
     else:
         parts.append("\nNothing logged yet today.")
