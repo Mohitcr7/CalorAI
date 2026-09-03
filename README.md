@@ -503,6 +503,17 @@ If the cache economics were flatly negative I'd keep the content and drop the
 
 `evals/run_evals.py` — **15/15 passing.**
 
+**The suite is not deterministic, and you should expect an occasional red run.**
+Every case drives a real model, so a borderline judgement can land differently
+between runs. Observed rate while writing this: one failure across six full runs,
+on a case that passed on every retry. I am reporting that rather than quoting a
+clean 15/15 and letting you discover it, because a suite that passes 5 times in 6
+is a different claim from one that passes always.
+
+The fix is not to loosen the assertions until everything is green — the
+assertions are the point. It's to run borderline cases N times and require a
+pass rate, which is on [what I'd build next](#what-id-build-next).
+
 Cases are graded on **the state of the database after each turn**, not on the
 wording of the reply. A meal logger is correct when the right foods, the right
 quantities and the right running total are stored. Reply-text assertions are used
@@ -632,11 +643,14 @@ In priority order.
    the product this is meant to be.
 5. **Re-dating and meal editing by reference** — "move that to yesterday", "the
    dal at lunch, not dinner".
-6. **An eval set with adversarial cases**: contradictory corrections, a photo of
+6. **Flake-resistant evals.** Cases that exercise a borderline judgement should
+   run N times and require a pass rate, rather than passing or failing on a
+   single sample of a nondeterministic system. Today one run is one sample.
+7. **An eval set with adversarial cases**: contradictory corrections, a photo of
    something that isn't food, a user who changes dietary restriction mid-history.
-7. **Postgres + proper concurrency** if this were going anywhere near real
+8. **Postgres + proper concurrency** if this were going anywhere near real
    traffic.
-8. **Memory consolidation.** Facts currently only ever overwrite. Over months
+9. **Memory consolidation.** Facts currently only ever overwrite. Over months
    you'd want summarisation and decay — "was vegetarian, now eats fish" is a
    history, not a single value.
 
