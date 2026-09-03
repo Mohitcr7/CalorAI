@@ -111,16 +111,36 @@ def have_google() -> bool:
 # raw per-provider clients
 # --------------------------------------------------------------------------
 
+# Model families that removed the sampling parameters. Sending `temperature` to
+# any of these is a 400, not a warning.
+#
+# Found the hard way: vision defaulted to Sonnet 5 with temperature=0.1 and
+# failed on every single call, while the Haiku used for eval runs accepted it
+# happily. The shipped default was broken and the tested configuration was not,
+# which is the worst possible arrangement -- and a reminder that "the default
+# must be exercised at least once" is not a nicety.
+_NO_SAMPLING_PREFIXES = (
+    "claude-fable-", "claude-mythos-", "claude-opus-5", "claude-opus-4-8",
+    "claude-opus-4-7", "claude-sonnet-5",
+)
+
+
+def _accepts_temperature(model: str) -> bool:
+    return not model.startswith(_NO_SAMPLING_PREFIXES)
+
+
 def _claude(model: str, *, temperature: float, timeout: float,
             max_tokens: int, max_retries: int) -> ChatAnthropic:
-    return ChatAnthropic(
+    kwargs = dict(
         model=model,
         api_key=ANTHROPIC_API_KEY,
-        temperature=temperature,
         max_tokens=max_tokens,
         default_request_timeout=timeout,
         max_retries=max_retries,
     )
+    if _accepts_temperature(model):
+        kwargs["temperature"] = temperature
+    return ChatAnthropic(**kwargs)
 
 
 def _gemini(model: str, *, temperature: float, timeout: float,

@@ -242,23 +242,45 @@ CASES: list[Case] = [
         )],
     ),
 
+    # The image cases assume samples/plate.jpg: an Indian thali holding a
+    # chapati, a bowl of curd, a dark curry, a dry sabzi and two laddus.
+    #
+    # Asserting only meal_count(1) here was a mistake worth recording: it passed
+    # while the vision model was reporting "idli, dosa, sambar, chutney" for that
+    # plate. One meal was logged, so the eval went green on a completely wrong
+    # read. These now check that something bread-like actually came back, which
+    # is the one item every correct read of this photo contains.
     Case(
         name="image_only",
-        why="Photo path end to end: vision identifies, text model logs once.",
+        why="Photo path end to end: vision identifies the real plate, text model logs once.",
         needs_image=True,
         turns=[Turn(image="__IMAGE__",
-                    expect_db=[("logged exactly one meal", meal_count(1))])],
+                    expect_db=[
+                        ("logged exactly one meal", meal_count(1)),
+                        ("recognised the flatbread on the plate",
+                         lambda uid: any(
+                             any(k in i["name"].lower()
+                                 for k in ("roti", "chapati", "paratha", "flatbread", "bread"))
+                             for m in db.get_meals(uid) for i in m["items"])),
+                        ("plausible thali total", kcal_between(300, 1600)),
+                    ])],
     ),
 
     Case(
         name="image_with_caption",
         why=(
-            "Both models must resolve to ONE meal. The caption halves the "
-            "portion; the result must not be two meals or a meal plus a correction."
+            "Both models must resolve to ONE meal. The caption halves the portion, "
+            "so the result must be a single halved meal -- not two meals, not the "
+            "full plate, and not a meal followed by a correction."
         ),
         needs_image=True,
         turns=[Turn(text="half of this was my brother's", image="__IMAGE__",
-                    expect_db=[("exactly one meal", meal_count(1))])],
+                    expect_db=[
+                        ("exactly one meal", meal_count(1)),
+                        # A full read of this plate lands around 800-900 kcal, so
+                        # anything at or above that means the caption was ignored.
+                        ("caption actually halved the portions", kcal_between(80, 700)),
+                    ])],
     ),
 
     Case(

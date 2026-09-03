@@ -40,6 +40,20 @@ class AgentState(TypedDict):
 
 MAX_TOOL_LOOPS = 4
 
+# Stand-in text for a turn that is nothing but a photo, since the API needs some
+# user content alongside the image.
+#
+# The wording matters more than it looks. An earlier bracketed version --
+# "[sent a photo of their food]" -- read to the model as a system annotation
+# rather than a person talking, and it would intermittently reply "I can see the
+# photo but I need the vision details", refusing to log roughly one turn in two.
+# Phrasing it as something a person would actually send fixed that.
+#
+# It is never passed to the vision model as a caption (it is not a caption), and
+# it is not what gets written to the stored transcript -- that records the real
+# photo path.
+PHOTO_ONLY_TEXT = "Here's a photo of what I ate."
+
 
 def _perceive(state: AgentState) -> dict:
     """Image branch. Skipped entirely -- zero cost -- for text-only turns."""
@@ -50,7 +64,7 @@ def _perceive(state: AgentState) -> dict:
     caption = ""
     for m in reversed(state["messages"]):
         if isinstance(m, HumanMessage) and isinstance(m.content, str):
-            caption = m.content
+            caption = "" if m.content == PHOTO_ONLY_TEXT else m.content
             break
 
     result = vision.analyse_image(path, caption=caption)
@@ -72,13 +86,22 @@ def _perceive(state: AgentState) -> dict:
     else:
         note = (
             f"[VISION] The photo shows: {result.summary()} "
-            f"(confidence {result.overall_confidence:.2f}). "
-            "Log this as ONE meal with a single log_meal call. "
-            "If the user's message adjusts the portion (e.g. 'half of this was my "
-            "brother's', 'only ate two thirds'), apply that adjustment to the "
-            "quantities INSIDE that same log_meal call -- do not log first and "
-            "correct afterwards."
+            f"(confidence {result.overall_confidence:.2f}).\n"
+            "Log this NOW as ONE meal with a single log_meal call, using those "
+            "items and quantities. Sending a photo IS the request to log it -- do "
+            "not describe the plate back to the user, and do not ask whether they "
+            "ate it. Reply only with what you logged and the calories."
         )
+        if caption:
+            note += (
+                "\nThe user's message this turn is a caption on THIS photo. It is "
+                "not a correction to anything logged earlier, even if it is worded "
+                "like one. 'half of this was my brother's', 'only ate two thirds', "
+                "'I shared it' all mean: multiply the quantities above and log the "
+                "result ONCE. Do NOT call scale_last_meal or correct_item -- there "
+                "is nothing earlier to correct, and do NOT log the full plate and "
+                "then adjust it. One log_meal call with the adjusted numbers."
+            )
     return {"vision_note": note}
 
 
@@ -173,7 +196,7 @@ def _history(user_id: str, limit: int = 8) -> list[BaseMessage]:
 
 def _turn_state(user_id: str, text: str, image_path: str | None) -> AgentState:
     tools.CURRENT_USER.set(user_id)
-    user_text = text or ("[sent a photo of their food]" if image_path else "")
+    user_text = text or (PHOTO_ONLY_TEXT if image_path else "")
     return {
         "messages": [*_history(user_id), HumanMessage(content=user_text)],
         "user_id": user_id,
