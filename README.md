@@ -139,6 +139,10 @@ Tests and measurement:
 
 ## Architecture
 
+![CalorAI system architecture — LangGraph pipeline, tool surface split by side effect, nutrition and memory resolution, and the Claude/Gemini provider layer](docs/architecture.svg)
+
+The module layout behind that diagram:
+
 ```
 cli.py       terminal loop, splits an image path out of the message
 agent.py     LangGraph state machine — the orchestrator

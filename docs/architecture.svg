@@ -1,0 +1,375 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1740" width="1800" height="1740" role="img" aria-label="CalorAI system architecture diagram">
+<title>CalorAI — system architecture and data flow</title>
+<desc>LangGraph pipeline: entry points feed an orchestrator running perceive, assistant and tools nodes; tools are split by side effect; nutrition and memory resolve locally against SQLite; a provider layer routes Claude primary with Gemini failover.</desc>
+
+<defs>
+  <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa"/>
+  </marker>
+  <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#4ade80"/>
+  </marker>
+  <marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#7aa2f7"/>
+  </marker>
+  <radialGradient id="glow">
+    <stop offset="0%" stop-color="#ff5c8a" stop-opacity="0.55"/>
+    <stop offset="100%" stop-color="#ff5c8a" stop-opacity="0"/>
+  </radialGradient>
+</defs>
+
+<rect width="1800" height="1740" fill="#0b0d13"/>
+
+<!-- ============ HEADER ============ -->
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="70" y="102" font-size="42" font-weight="700" fill="#ff5c8a">CalorAI</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="70" y="134" font-size="13" letter-spacing="2.4" fill="#6b7480">LANGGRAPH PIPELINE · ARCHITECTURE &amp; DATA FLOW</text>
+</g>
+
+<!-- entry points -->
+<rect x="880" y="50" width="270" height="92" rx="12" fill="#12151d" stroke="#242a35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="906" y="76" font-size="11" letter-spacing="1.6" fill="#6b7480">ENTRY</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="906" y="102" font-size="19" font-weight="600" fill="#e6e9ee">CLI</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="906" y="126" font-size="12" fill="#8b95a3">chat · /today /memory · --user</text>
+</g>
+
+<rect x="1170" y="50" width="290" height="92" rx="12" fill="#12151d" stroke="#242a35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="1196" y="76" font-size="11" letter-spacing="1.6" fill="#6b7480">ENTRY</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="1196" y="102" font-size="19" font-weight="600" fill="#e6e9ee">Web UI · FastAPI</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="1196" y="126" font-size="12" fill="#8b95a3">SSE events · upload · state panel</text>
+</g>
+
+<!-- legend -->
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5">
+  <circle cx="1516" cy="64" r="5" fill="#a78bfa"/>
+  <text x="1534" y="69" fill="#8b95a3">main path</text>
+  <circle cx="1516" cy="96" r="5" fill="#e0a458"/>
+  <text x="1534" y="101" fill="#8b95a3">mutates stored data</text>
+  <circle cx="1516" cy="128" r="5" fill="#4ade80"/>
+  <text x="1534" y="133" fill="#8b95a3">off the critical path</text>
+</g>
+
+<path d="M 1015 142 C 1015 168, 930 160, 902 182" stroke="#a78bfa" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#ap)" opacity="0.75"/>
+<path d="M 1315 142 C 1315 172, 960 160, 912 182" stroke="#a78bfa" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#ap)" opacity="0.75"/>
+
+<!-- ============ ORCHESTRATOR ============ -->
+<rect x="70" y="185" width="1660" height="100" rx="14" fill="#17111a" stroke="#ff5c8a" stroke-width="1.4"/>
+<circle cx="142" cy="235" r="34" fill="url(#glow)"/>
+<circle cx="142" cy="235" r="14" fill="none" stroke="#ff5c8a" stroke-width="1.4" stroke-dasharray="3 3"/>
+<circle cx="142" cy="235" r="6" fill="#ff5c8a"/>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="200" y="230" font-size="25" font-weight="700" fill="#ff5c8a">LangGraph Orchestrator — perceive → assistant → tools</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="200" y="262" font-size="13" fill="#8b95a3">StateGraph · AgentState carries user_id · conditional edge on image · tool loop capped at 4 · history rehydrated from SQLite</text>
+</g>
+
+<path d="M 900 285 L 900 322" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+
+<!-- ============ ROW A : perceive + handoff ============ -->
+<rect x="70" y="330" width="800" height="200" rx="14" fill="#12151d" stroke="#242a35"/>
+<circle cx="843" cy="356" r="5" fill="#a78bfa"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="98" y="360" font-size="11.5" letter-spacing="1.6" fill="#a78bfa">NODE 1 · PERCEIVE  (CONDITIONAL)</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="98" y="390" font-size="21" font-weight="600" fill="#e6e9ee">Vision Branch</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#e6e9ee">
+  <text x="98" y="424">text-only turns return immediately</text>
+  <text x="98" y="464">claude-sonnet-5 · 15s timeout · no tools</text>
+  <text x="98" y="504">confidence below 0.45 → ask, never log</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#6b7480">
+  <text x="470" y="424">zero cost on the common path</text>
+  <text x="470" y="464">food + portion only, never calories</text>
+  <text x="470" y="504">not-food · unparseable · empty → same</text>
+</g>
+
+<rect x="910" y="330" width="820" height="200" rx="14" fill="#12151d" stroke="#242a35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="938" y="360" font-size="11.5" letter-spacing="1.6" fill="#4ade80">HANDOFF CONTRACT</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="938" y="390" font-size="21" font-weight="600" fill="#e6e9ee">Two models, one meal</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" fill="#e6e9ee">
+  <text x="938" y="424">vision writes a [VISION] note — it never acts</text>
+  <text x="938" y="454">macros resolve through the same table either way</text>
+  <text x="938" y="484">a caption applies inside the same log_meal call</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#6b7480">
+  <text x="938" y="512">photographed meal and typed meal → identical numbers · never log-then-correct</text>
+</g>
+
+<path d="M 900 530 L 900 562" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+
+<!-- ============ ROW B : assistant ============ -->
+<rect x="70" y="570" width="1660" height="140" rx="14" fill="#12151d" stroke="#242a35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="98" y="600" font-size="11.5" letter-spacing="1.6" fill="#a78bfa">NODE 2 · ASSISTANT</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="98" y="630" font-size="21" font-weight="600" fill="#e6e9ee">Prompt assembly, then the model call</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#8b95a3">
+  <text x="98" y="662">four local sources, all sub-millisecond SQLite reads — no model call to build the prompt</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#6b7480">
+  <text x="98" y="690">static instructions + worked examples  ·  today's date  ·  tier-1 memory (≤15 facts)  ·  today's totals, pre-loaded</text>
+  <text x="1180" y="690" fill="#4ade80">4282 tok cached prefix · haiku-4-5 · 10 tools</text>
+</g>
+
+<path d="M 900 710 L 900 748" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="920" y="740" font-size="12" fill="#6b7480">totals pre-loaded → "how am I doing?" costs zero tool calls</text>
+</g>
+
+<!-- tool loop back edge -->
+<path d="M 62 900 C 30 900, 30 640, 62 640" stroke="#a78bfa" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#ap)" opacity="0.8"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="18" y="782" font-size="11" fill="#6b7480" transform="rotate(-90 18 782)">tool loop · max 4</text>
+</g>
+
+<!-- ============ ROW C : tool surface ============ -->
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="70" y="742" font-size="12" letter-spacing="1.8" fill="#4ade80">TOOL SURFACE · SPLIT BY SIDE EFFECT, NOT BY TOPIC — 10 TOOLS</text>
+</g>
+
+<!-- card 1 : create -->
+<rect x="70" y="760" width="401" height="270" rx="14" fill="#12151d" stroke="#242a35"/>
+<circle cx="444" cy="786" r="5" fill="#e0a458"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="96" y="790" font-size="11.5" letter-spacing="1.6" fill="#e0a458">CREATE</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="96" y="818" font-size="19" font-weight="600" fill="#e6e9ee">log_meal</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#e6e9ee">
+  <text x="96" y="854">resolves every food first</text>
+  <text x="96" y="904">writes meals + meal_items</text>
+  <text x="96" y="954">stores per-unit macros</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#6b7480">
+  <text x="96" y="872">table → alias → fuzzy → LLM</text>
+  <text x="96" y="922">one meal row, N item rows</text>
+  <text x="96" y="972">quantity kept as its own column</text>
+</g>
+<rect x="96" y="988" width="349" height="30" rx="8" fill="none" stroke="#e0a458" stroke-opacity="0.35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="110" y="1008" font-size="11.5" fill="#e0a458">→ the only tool that creates a meal</text>
+</g>
+
+<!-- card 2 : edit -->
+<rect x="489" y="760" width="401" height="270" rx="14" fill="#12151d" stroke="#242a35"/>
+<circle cx="863" cy="786" r="5" fill="#e0a458"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="515" y="790" font-size="11.5" letter-spacing="1.6" fill="#e0a458">EDIT</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="515" y="818" font-size="19" font-weight="600" fill="#e6e9ee">three narrow mutations</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#e6e9ee">
+  <text x="515" y="854">correct_item</text>
+  <text x="515" y="904">scale_last_meal</text>
+  <text x="515" y="954">delete_last_meal</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#6b7480">
+  <text x="515" y="872">overwrites a quantity — cannot create</text>
+  <text x="515" y="922">"half was my brother's" → × 0.5</text>
+  <text x="515" y="972">soft delete, filtered by every read</text>
+</g>
+<rect x="515" y="988" width="349" height="30" rx="8" fill="none" stroke="#e0a458" stroke-opacity="0.35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="529" y="1008" font-size="11.5" fill="#e0a458">→ double-counting unrepresentable</text>
+</g>
+
+<!-- card 3 : read -->
+<rect x="908" y="760" width="401" height="270" rx="14" fill="#12151d" stroke="#242a35"/>
+<circle cx="1282" cy="786" r="5" fill="#7aa2f7"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="934" y="790" font-size="11.5" letter-spacing="1.6" fill="#7aa2f7">READ</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="934" y="818" font-size="19" font-weight="600" fill="#e6e9ee">inspect before mutating</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#e6e9ee">
+  <text x="934" y="854">today_summary</text>
+  <text x="934" y="904">meals_on_day</text>
+  <text x="934" y="954">lookup_nutrition</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#6b7480">
+  <text x="934" y="872">totals + any stored goal</text>
+  <text x="934" y="922">"same as yesterday" is a SQL query</text>
+  <text x="934" y="972">macros without logging anything</text>
+</g>
+<rect x="934" y="988" width="349" height="30" rx="8" fill="none" stroke="#7aa2f7" stroke-opacity="0.35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="948" y="1008" font-size="11.5" fill="#7aa2f7">→ pure reads · no writes</text>
+</g>
+
+<!-- card 4 : memory -->
+<rect x="1327" y="760" width="401" height="270" rx="14" fill="#12151d" stroke="#242a35"/>
+<circle cx="1701" cy="786" r="5" fill="#4ade80"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="1353" y="790" font-size="11.5" letter-spacing="1.6" fill="#4ade80">MEMORY</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="1353" y="818" font-size="19" font-weight="600" fill="#e6e9ee">recall and write</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#e6e9ee">
+  <text x="1353" y="854">recall_memory</text>
+  <text x="1353" y="904">remember</text>
+  <text x="1353" y="954">save_shortcut</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#6b7480">
+  <text x="1353" y="872">tier-2 fetch — payloads on demand</text>
+  <text x="1353" y="922">stated outright → applies this turn</text>
+  <text x="1353" y="972">teaches "my usual" once, forever</text>
+</g>
+<rect x="1353" y="988" width="349" height="30" rx="8" fill="none" stroke="#4ade80" stroke-opacity="0.35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="1367" y="1008" font-size="11.5" fill="#4ade80">→ user_id from contextvar, never an arg</text>
+</g>
+
+<path d="M 900 1030 L 900 1067" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+
+<!-- ============ ROW D : resolution layers ============ -->
+<rect x="70" y="1075" width="820" height="230" rx="14" fill="#12151d" stroke="#242a35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="98" y="1105" font-size="11.5" letter-spacing="1.6" fill="#7aa2f7">RESOLUTION · NUTRITION</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="98" y="1135" font-size="21" font-weight="600" fill="#e6e9ee">Table first, model last</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#e6e9ee">
+  <text x="128" y="1170">exact match on the normalised name</text>
+  <text x="128" y="1200">hand-written alias map</text>
+  <text x="128" y="1230">fuzzy / token-overlap over 67 seeded foods</text>
+  <text x="128" y="1260">LLM estimate — written back to the table</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#6b7480">
+  <text x="98" y="1170">1</text><text x="98" y="1200">2</text><text x="98" y="1230">3</text><text x="98" y="1260">4</text>
+  <text x="600" y="1170">~0.1 ms</text>
+  <text x="600" y="1200">chapati → roti</text>
+  <text x="600" y="1230">Indian home portions, ±15%</text>
+  <text x="600" y="1260">paid once, then cached</text>
+</g>
+<rect x="98" y="1272" width="764" height="30" rx="8" fill="none" stroke="#7aa2f7" stroke-opacity="0.35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="112" y="1292" font-size="11.5" fill="#7aa2f7">→ steps 1–3 cover almost every message · no network call on the hot path</text>
+</g>
+
+<rect x="910" y="1075" width="820" height="230" rx="14" fill="#12151d" stroke="#242a35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="938" y="1105" font-size="11.5" letter-spacing="1.6" fill="#4ade80">RESOLUTION · MEMORY — THREE KINDS, DELIBERATELY SEPARATE</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="938" y="1135" font-size="21" font-weight="600" fill="#e6e9ee">Names in the prompt, bodies in the database</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13.5" fill="#e6e9ee">
+  <text x="968" y="1172">facts — tier 1, injected every turn</text>
+  <text x="968" y="1207">aliases — tier 2, names only up front</text>
+  <text x="968" y="1242">episodic — not memory at all</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#6b7480">
+  <text x="938" y="1172">1</text><text x="938" y="1207">2</text><text x="938" y="1242">3</text>
+  <text x="1360" y="1172">≤15, 12-key bounded namespace</text>
+  <text x="1360" y="1207">payload fetched only when asked</text>
+  <text x="1360" y="1242">the meals table — a SQL query</text>
+</g>
+<rect x="938" y="1272" width="764" height="30" rx="8" fill="none" stroke="#4ade80" stroke-opacity="0.35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="952" y="1292" font-size="11.5" fill="#4ade80">→ 40 saved shortcuts cost the same prompt tokens as 2 · upsert on (user_id, key)</text>
+</g>
+
+<!-- async memory write edge -->
+<path d="M 1740 1190 C 1782 1190, 1782 655, 1742 655" stroke="#4ade80" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#ag)" opacity="0.8"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="1790" y="922" font-size="11" fill="#4ade80" transform="rotate(-90 1790 922)">async extractor · after the reply ships</text>
+</g>
+
+<path d="M 900 1305 L 900 1337" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+
+<!-- ============ ROW E : sqlite invariant ============ -->
+<rect x="70" y="1345" width="1660" height="92" rx="14" fill="#101a14" stroke="#4ade80" stroke-width="1.3"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="98" y="1375" font-size="11.5" letter-spacing="1.6" fill="#4ade80">SQLITE · THE INVARIANT EVERYTHING ELSE FOLLOWS FROM</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="98" y="1404" font-size="19" font-weight="600" fill="#e6e9ee">Daily totals are never stored — always SUM(quantity × kcal_per_unit) at read time</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="98" y="1428" font-size="12" fill="#8b95a3">6 tables · meals · meal_items · foods · memories · memory_history · messages     —     a correction is one UPDATE; there is no counter to drift</text>
+</g>
+
+<path d="M 900 1437 L 900 1469" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+
+<!-- ============ ROW F : provider layer + measured ============ -->
+<rect x="70" y="1477" width="820" height="215" rx="14" fill="#12151d" stroke="#242a35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="98" y="1507" font-size="11.5" letter-spacing="1.6" fill="#a78bfa">LLM PROVIDER LAYER</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="98" y="1535" font-size="19" font-weight="600" fill="#e6e9ee">Claude primary, Gemini failover</text>
+</g>
+<rect x="98" y="1550" width="230" height="42" rx="9" fill="none" stroke="#4ade80" stroke-opacity="0.55"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12">
+  <circle cx="118" cy="1571" r="4.5" fill="#4ade80"/>
+  <text x="134" y="1568" fill="#e6e9ee">claude-haiku-4-5</text>
+  <text x="134" y="1584" fill="#6b7480">text · sonnet-5 for vision</text>
+</g>
+<text x="344" y="1577" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#6b7480">→</text>
+<rect x="368" y="1550" width="230" height="42" rx="9" fill="#12151d" stroke="#242a35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12">
+  <text x="386" y="1568" fill="#e6e9ee">gemini-3.5-flash-lite</text>
+  <text x="386" y="1584" fill="#6b7480">failover · verified live</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#8b95a3">
+  <text x="98" y="1620">429 · 529 · timeout · 5xx  →  fail over silently</text>
+  <text x="98" y="1644" fill="#e0a458">auth · 400 · permission  →  raise loudly, never mask a config bug</text>
+  <text x="98" y="1668">tools bind per provider before composing · stream only fails over pre-first-token</text>
+</g>
+
+<rect x="910" y="1477" width="820" height="215" rx="14" fill="#12151d" stroke="#242a35"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <text x="938" y="1507" font-size="11.5" letter-spacing="1.6" fill="#7aa2f7">MEASURED · NOT ESTIMATED</text>
+</g>
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <text x="938" y="1535" font-size="19" font-weight="600" fill="#e6e9ee">What it actually does</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5">
+  <text x="938" y="1566" fill="#8b95a3">text path</text>
+  <text x="1180" y="1566" fill="#4ade80">p50 1.97s · p95 2.80s</text>
+  <text x="1470" y="1566" fill="#6b7480">n=20, mixed shapes</text>
+
+  <text x="938" y="1594" fill="#8b95a3">image path</text>
+  <text x="1180" y="1594" fill="#e0a458">p50 6.12s · p95 10.07s</text>
+  <text x="1470" y="1594" fill="#6b7480">vision runs serially first</text>
+
+  <text x="938" y="1622" fill="#8b95a3">failover path</text>
+  <text x="1180" y="1622" fill="#e0a458">11–15s</text>
+  <text x="1470" y="1622" fill="#6b7480">availability, not speed</text>
+
+  <text x="938" y="1650" fill="#8b95a3">eval suite</text>
+  <text x="1180" y="1650" fill="#4ade80">15/15</text>
+  <text x="1470" y="1650" fill="#6b7480">1 red in 7 full runs</text>
+
+  <text x="938" y="1678" fill="#8b95a3">failover tests</text>
+  <text x="1180" y="1678" fill="#4ade80">6/6 stub · 2/2 live</text>
+  <text x="1470" y="1678" fill="#6b7480">Gemini, Claude excluded</text>
+</g>
+
+</svg>
