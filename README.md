@@ -505,10 +505,10 @@ If the cache economics were flatly negative I'd keep the content and drop the
 
 **The suite is not deterministic, and you should expect an occasional red run.**
 Every case drives a real model, so a borderline judgement can land differently
-between runs. Observed rate while writing this: one failure across six full runs,
-on a case that passed on every retry. I am reporting that rather than quoting a
-clean 15/15 and letting you discover it, because a suite that passes 5 times in 6
-is a different claim from one that passes always.
+between runs. Observed rate while writing this: one failure across seven full
+runs, on a case that passed on every retry. I am reporting that rather than
+quoting a clean 15/15 and letting you discover it, because a suite that passes 6
+times in 7 is a different claim from one that passes always.
 
 The fix is not to loosen the assertions until everything is green — the
 assertions are the point. It's to run borderline cases N times and require a
