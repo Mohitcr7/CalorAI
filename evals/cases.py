@@ -292,6 +292,42 @@ CASES: list[Case] = [
     ),
 
     Case(
+        name="session_isolation",
+        why=(
+            "Two users share one database. One user's meals and shortcuts must "
+            "never leak into another's totals or answers. Tested here rather than "
+            "by hand because it is the kind of thing that breaks silently."
+        ),
+        setup=lambda uid: (
+            db.insert_meal(
+                "other_user_dont_leak",
+                [{"name": "chicken biryani", "quantity": 4, "unit": "cup",
+                  "kcal_per_unit": 350, "protein_per_unit": 17,
+                  "carbs_per_unit": 42, "fat_per_unit": 13}],
+                meal_type="lunch",
+            ),
+            memory.save_alias(
+                "other_user_dont_leak", "my usual", "4 cups of chicken biryani",
+                [{"name": "chicken biryani", "quantity": 4, "unit": "cup"}],
+            ),
+        ),
+        turns=[
+            Turn(text="had 2 rotis",
+                 expect_db=[
+                     ("only this user's meal counted", meal_count(1)),
+                     ("the other user's 1400 kcal did not leak in",
+                      kcal_between(150, 300)),
+                 ]),
+            Turn(text="my usual",
+                 expect_db=[("did not inherit the other user's shortcut",
+                             lambda uid: not any(
+                                 "biryani" in i["name"].lower()
+                                 for m in db.get_meals(uid) for i in m["items"]))],
+                 expect_reply_any=["?"]),
+        ],
+    ),
+
+    Case(
         name="delete_meal",
         why="Deletions must pull the totals back down, not leave orphaned calories.",
         turns=[
