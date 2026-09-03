@@ -113,6 +113,20 @@ CLI commands: `/today`, `/memory`, `/meals`, `/user <id>`, `/quit`.
 .venv/bin/python -m calorai.cli --no-stream    # wait for the full reply
 ```
 
+### Web UI
+
+A minimal chat interface, mainly for demos and recording. It shows the agent's
+*state* alongside the conversation — running totals, logged items, stored
+memories, and which tools fired on each turn — because none of that is visible
+in a transcript alone.
+
+```bash
+.venv/bin/python -m calorai.web     # http://127.0.0.1:8000
+```
+
+Attach photos with the paperclip or by dragging them onto the page. The user
+dropdown switches sessions, which demonstrates isolation live.
+
 Tests and measurement:
 
 ```bash

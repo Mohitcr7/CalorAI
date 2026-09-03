@@ -57,6 +57,7 @@ PHOTO_ONLY_TEXT = "Here's a photo of what I ate."
 
 def _perceive(state: AgentState) -> dict:
     """Image branch. Skipped entirely -- zero cost -- for text-only turns."""
+    tools.CURRENT_USER.set(state["user_id"])
     path = state.get("image_path")
     if not path:
         return {"vision_note": ""}
@@ -107,6 +108,7 @@ def _perceive(state: AgentState) -> dict:
 
 def _assistant(state: AgentState) -> dict:
     uid = state["user_id"]
+    tools.CURRENT_USER.set(uid)   # see _tools() -- identity travels with state
 
     extra = ""
     if state.get("vision_note"):
@@ -243,3 +245,41 @@ def chat_stream(user_id: str, text: str, image_path: str | None = None):
             emitted.append(text)
             yield text
     _finish(user_id, text, "".join(emitted).strip(), image_path)
+
+
+def chat_stream_events(user_id: str, text: str, image_path: str | None = None):
+    """Like chat_stream, but yields structured events instead of bare tokens.
+
+    Event shapes:
+        {"type": "tool",  "name": str, "args": dict}
+        {"type": "token", "text": str}
+        {"type": "done",  "reply": str}
+
+    The web UI uses this to show which tools ran. Seeing "correct_item" fire
+    rather than "log_meal" is the clearest possible demonstration that a
+    correction edits rather than appends, so it is worth surfacing.
+    """
+    state = _turn_state(user_id, text, image_path)
+    emitted: list[str] = []
+
+    for mode, chunk in graph().stream(state, stream_mode=["messages", "updates"]):
+        if mode == "updates":
+            for node, payload in (chunk or {}).items():
+                if node != "assistant":
+                    continue
+                for msg in payload.get("messages", []):
+                    for call in getattr(msg, "tool_calls", None) or []:
+                        yield {"type": "tool", "name": call["name"], "args": call.get("args", {})}
+        elif mode == "messages":
+            msg, meta = chunk
+            if meta.get("langgraph_node") != "assistant":
+                continue
+            if isinstance(msg, AIMessage):
+                piece = _text_of(msg.content)
+                if piece:
+                    emitted.append(piece)
+                    yield {"type": "token", "text": piece}
+
+    reply = "".join(emitted).strip()
+    _finish(user_id, text, reply, image_path)
+    yield {"type": "done", "reply": reply}

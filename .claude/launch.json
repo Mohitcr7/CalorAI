@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "calorai-web",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "calorai.web"],
+      "port": 8000
+    }
+  ]
+}

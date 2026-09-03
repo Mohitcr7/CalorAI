@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CalorAI</title>
+<style>
+  :root{
+    --bg:#0f1114; --panel:#161a1f; --panel-2:#1c2128; --line:#262d36;
+    --text:#e6e9ee; --muted:#8b95a3; --accent:#25d366; --accent-dim:#1a7f43;
+    --user-bubble:#005c4b; --bot-bubble:#202c33; --warn:#e0a458; --tool:#7aa2f7;
+    --radius:14px; --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:light){
+    :root{
+      --bg:#eef1f5; --panel:#fff; --panel-2:#f6f8fa; --line:#dde3ea;
+      --text:#131720; --muted:#5d6875; --user-bubble:#d9fdd3; --bot-bubble:#fff;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    height:100vh; display:flex; flex-direction:column;
+  }
+  header{
+    display:flex; align-items:center; gap:14px; padding:12px 18px;
+    background:var(--panel); border-bottom:1px solid var(--line); flex:0 0 auto;
+  }
+  .logo{font-weight:700; font-size:17px; letter-spacing:-.2px}
+  .logo span{color:var(--accent)}
+  .models{font:11px/1.4 var(--mono); color:var(--muted); margin-left:auto; text-align:right}
+  select,button{
+    font:inherit; color:var(--text); background:var(--panel-2);
+    border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer;
+  }
+  button:hover{border-color:var(--accent-dim)}
+  .wrap{flex:1; display:flex; min-height:0}
+  /* ---------- chat ---------- */
+  .chat{flex:1 1 auto; display:flex; flex-direction:column; min-width:0}
+  .messages{flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:10px}
+  .row{display:flex}
+  .row.me{justify-content:flex-end}
+  .bubble{
+    max-width:min(78%,620px); padding:9px 13px; border-radius:var(--radius);
+    background:var(--bot-bubble); border:1px solid var(--line); white-space:pre-wrap;
+    word-wrap:break-word;
+  }
+  .row.me .bubble{background:var(--user-bubble); border-color:transparent}
+  @media (prefers-color-scheme:light){ .row.me .bubble{color:#0b3d2c} }
+  .bubble img{max-width:230px; border-radius:10px; display:block; margin-bottom:7px}
+  .meta{font:11px var(--mono); color:var(--muted); margin-top:5px}
+  .tools{display:flex; flex-wrap:wrap; gap:5px; margin-bottom:7px}
+  .tool{
+    font:11px var(--mono); color:var(--tool); background:color-mix(in srgb,var(--tool) 14%,transparent);
+    border:1px solid color-mix(in srgb,var(--tool) 32%,transparent);
+    padding:2px 7px; border-radius:20px;
+  }
+  .tool.mutate{color:var(--warn); background:color-mix(in srgb,var(--warn) 14%,transparent);
+               border-color:color-mix(in srgb,var(--warn) 32%,transparent)}
+  .empty{color:var(--muted); text-align:center; margin:auto; max-width:420px; font-size:14px}
+  .empty code{font:12px var(--mono); background:var(--panel-2); padding:2px 6px; border-radius:5px}
+  /* ---------- composer ---------- */
+  .composer{
+    display:flex; gap:9px; padding:13px 18px; background:var(--panel);
+    border-top:1px solid var(--line); align-items:center; flex:0 0 auto;
+  }
+  .composer input[type=text]{
+    flex:1; font:inherit; color:var(--text); background:var(--panel-2);
+    border:1px solid var(--line); border-radius:22px; padding:10px 16px; outline:none;
+  }
+  .composer input[type=text]:focus{border-color:var(--accent-dim)}
+  .send{background:var(--accent); color:#062b17; border:none; font-weight:600; padding:10px 18px; border-radius:22px}
+  .send:disabled{opacity:.45; cursor:default}
+  .chip{
+    font:11px var(--mono); color:var(--muted); background:var(--panel-2);
+    border:1px solid var(--line); border-radius:8px; padding:4px 9px;
+    display:none; align-items:center; gap:7px;
+  }
+  .chip.on{display:inline-flex}
+  .chip b{color:var(--accent)}
+  /* ---------- sidebar ---------- */
+  .side{
+    flex:0 0 330px; background:var(--panel); border-left:1px solid var(--line);
+    overflow-y:auto; padding:18px;
+  }
+  .side h2{
+    font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 10px; font-weight:600;
+  }
+  .side section{margin-bottom:26px}
+  .totals{display:grid; grid-template-columns:1fr 1fr; gap:9px}
+  .stat{background:var(--panel-2); border:1px solid var(--line); border-radius:11px; padding:11px 13px}
+  .stat .n{font-size:23px; font-weight:650; letter-spacing:-.5px}
+  .stat .l{font:11px var(--mono); color:var(--muted); margin-top:1px}
+  .stat.kcal .n{color:var(--accent)}
+  .item,.mem{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:9px;
+    padding:8px 11px; margin-bottom:6px; font-size:13px;
+  }
+  .item .q{font:11px var(--mono); color:var(--muted)}
+  .mem .k{font:11px var(--mono); color:var(--tool)}
+  .mem.alias .k{color:var(--warn)}
+  .mem .v{margin-top:2px}
+  .none{color:var(--muted); font-size:13px; font-style:italic}
+  .flash{animation:flash .9s ease-out}
+  @keyframes flash{from{background:color-mix(in srgb,var(--accent) 26%,var(--panel-2))}to{background:var(--panel-2)}}
+  @media (max-width:860px){ .side{display:none} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Calor<span>AI</span></div>
+  <select id="user" title="Switch user — demonstrates session isolation">
+    <option value="demo">demo</option>
+    <option value="alice">alice</option>
+    <option value="bob">bob</option>
+  </select>
+  <button id="reset" title="Clear this user's meals and memories">Reset user</button>
+  <div class="models" id="models">…</div>
+</header>
+
+<div class="wrap">
+  <div class="chat">
+    <div class="messages" id="messages">
+      <div class="empty" id="empty">
+        Text what you ate, the way you'd text a friend.<br><br>
+        <code>had 2 parathas and chai for breakfast</code><br>
+        <code>actually that was 3 parathas not 2</code><br>
+        <code>how am I doing on calories?</code><br><br>
+        Attach a plate photo with 📎 — it routes to a separate vision model.
+      </div>
+    </div>
+    <div class="composer">
+      <input type="file" id="file" accept="image/*" hidden>
+      <button id="attach" title="Attach a photo">📎</button>
+      <span class="chip" id="chip"><b id="chipName"></b><span id="chipX" style="cursor:pointer">✕</span></span>
+      <input type="text" id="input" placeholder="Message" autocomplete="off">
+      <button class="send" id="send">Send</button>
+    </div>
+  </div>
+
+  <aside class="side">
+    <section>
+      <h2>Today</h2>
+      <div class="totals" id="totals"></div>
+    </section>
+    <section>
+      <h2>Logged meals</h2>
+      <div id="meals"></div>
+    </section>
+    <section>
+      <h2>What it remembers</h2>
+      <div id="memories"></div>
+    </section>
+  </aside>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const MUTATORS = new Set(['log_meal','correct_item','scale_last_meal','delete_last_meal','remember','save_shortcut']);
+let pendingImage = null, prevMemKeys = new Set(), busy = false;
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const user = () => $('user').value;
+
+function addRow(who){
+  $('empty')?.remove();
+  const row = document.createElement('div');
+  row.className = 'row ' + who;
+  const b = document.createElement('div');
+  b.className = 'bubble';
+  row.appendChild(b);
+  $('messages').appendChild(row);
+  $('messages').scrollTop = $('messages').scrollHeight;
+  return b;
+}
+
+async function refresh(){
+  const r = await fetch(`/api/state?user=${encodeURIComponent(user())}`);
+  const s = await r.json();
+  $('models').textContent = s.providers;
+
+  const t = s.totals;
+  $('totals').innerHTML = `
+    <div class="stat kcal"><div class="n">${Math.round(t.kcal)}</div><div class="l">kcal</div></div>
+    <div class="stat"><div class="n">${Math.round(t.protein_g)}g</div><div class="l">protein</div></div>
+    <div class="stat"><div class="n">${Math.round(t.carbs_g)}g</div><div class="l">carbs</div></div>
+    <div class="stat"><div class="n">${Math.round(t.fat_g)}g</div><div class="l">fat</div></div>`;
+
+  $('meals').innerHTML = s.meals.length ? s.meals.map(m =>
+    m.items.map(i => `<div class="item">${esc(i.name)}
+      <span class="q">— ${i.quantity % 1 ? i.quantity.toFixed(2) : i.quantity} ${esc(i.unit)} · ${Math.round(i.kcal)} kcal</span></div>`
+    ).join('')).join('') : '<div class="none">nothing logged yet</div>';
+
+  $('memories').innerHTML = s.memories.length ? s.memories.map(m => {
+    const isNew = !prevMemKeys.has(m.key + '=' + m.value);
+    return `<div class="mem ${m.kind==='alias'?'alias':''} ${isNew && prevMemKeys.size ? 'flash':''}">
+      <div class="k">${esc(m.key)}</div><div class="v">${esc(m.value)}</div></div>`;
+  }).join('') : '<div class="none">nothing remembered yet</div>';
+  prevMemKeys = new Set(s.memories.map(m => m.key + '=' + m.value));
+}
+
+async function send(){
+  const text = $('input').value.trim();
+  if((!text && !pendingImage) || busy) return;
+  busy = true; $('send').disabled = true;
+
+  const me = addRow('me');
+  if(pendingImage) me.innerHTML = `<img src="${pendingImage.preview}" alt="attached photo">`;
+  if(text) me.appendChild(document.createTextNode(text));
+
+  const body = new FormData();
+  body.append('user', user());
+  body.append('text', text);
+  if(pendingImage) body.append('image', pendingImage.path);
+  $('input').value = ''; clearImage();
+
+  const bot = addRow('bot');
+  const tools = document.createElement('div'); tools.className = 'tools';
+  const textNode = document.createElement('span');
+  bot.append(tools, textNode);
+  textNode.textContent = '…';
+  let started = false;
+
+  try{
+    const res = await fetch('/api/chat', {method:'POST', body});
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      buf += dec.decode(value, {stream:true});
+      const parts = buf.split('\n\n'); buf = parts.pop();
+      for(const part of parts){
+        if(!part.startsWith('data: ')) continue;
+        const ev = JSON.parse(part.slice(6));
+        if(ev.type === 'tool'){
+          const chip = document.createElement('span');
+          chip.className = 'tool' + (MUTATORS.has(ev.name) ? ' mutate' : '');
+          chip.textContent = ev.name;
+          chip.title = JSON.stringify(ev.args, null, 1);
+          tools.appendChild(chip);
+        } else if(ev.type === 'token'){
+          if(!started){ textNode.textContent = ''; started = true; }
+          textNode.textContent += ev.text;
+          $('messages').scrollTop = $('messages').scrollHeight;
+        } else if(ev.type === 'done'){
+          if(!started) textNode.textContent = ev.reply || '(no reply)';
+          const m = document.createElement('div');
+          m.className = 'meta'; m.textContent = `${ev.elapsed}s`;
+          bot.appendChild(m);
+        } else if(ev.type === 'error'){
+          textNode.textContent = '⚠ ' + ev.message;
+        }
+      }
+    }
+  }catch(e){
+    textNode.textContent = '⚠ ' + e.message;
+  }
+
+  busy = false; $('send').disabled = false; $('input').focus();
+  refresh();
+}
+
+function clearImage(){
+  if(pendingImage) URL.revokeObjectURL(pendingImage.preview);
+  pendingImage = null; $('chip').classList.remove('on'); $('file').value = '';
+}
+
+$('attach').onclick = () => $('file').click();
+$('chipX').onclick = clearImage;
+$('file').onchange = async e => {
+  const f = e.target.files[0]; if(!f) return;
+  const body = new FormData(); body.append('file', f);
+  const r = await fetch('/api/upload', {method:'POST', body});
+  const j = await r.json();
+  if(j.error){ alert(j.error); return; }
+  pendingImage = {path:j.path, preview:URL.createObjectURL(f)};
+  $('chipName').textContent = j.name; $('chip').classList.add('on');
+  $('input').focus();
+};
+$('send').onclick = send;
+$('input').onkeydown = e => { if(e.key === 'Enter') send(); };
+$('user').onchange = () => { $('messages').innerHTML = ''; prevMemKeys = new Set(); refresh(); };
+$('reset').onclick = async () => {
+  const body = new FormData(); body.append('user', user());
+  await fetch('/api/reset', {method:'POST', body});
+  $('messages').innerHTML = ''; prevMemKeys = new Set(); refresh();
+};
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  if(e.dataTransfer.files[0]){ $('file').files = e.dataTransfer.files; $('file').onchange({target:$('file')}); }
+});
+
+refresh();
+$('input').focus();
+</script>
+</body>
+</html>
